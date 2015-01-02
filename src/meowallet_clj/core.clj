@@ -5,21 +5,19 @@
 (require '[cheshire.core :as json])
 (import '(java.io StringReader BufferedReader))
 
+(defmacro def- 
+  [symbol & body] 
+  `(def ^:private ~symbol ~@body))
 
-(def base-url "https://services.sandbox.meowallet.pt/api/v2/")
-(def test-key "f0bd99cab8c6fadf7ae414e37667d7c2973cff65")
 
-(def sample-checkout 
-  {
-   :url_confirm "http://"
-   :url_cancel "http://"
-   :payment {
-             :amount 10 :currency "EUR"
-             :client {:name "john"}
-             :items [ {:name "things" :qt 1} ] 
-             }
 
-   })
+(defn with-key-on [env key]
+  (let [baseurl (if (= env :production)
+                  "https://services.wallet.pt/api/v2/" 
+                  "https://services.sandbox.meowallet.pt/api/v2/")]
+      (fn [f & body] 
+        (apply f baseurl key body))
+    ))
 
 (defn map-checkout 
   [{:keys [url_confirm url_cancel amount currency client items] :or {currency "EUR"}}]
@@ -34,42 +32,67 @@
   )
 
 
-(defn mw-post [k rsc params]
+(defn mw-post [base-url k rsc params]
   (try+
     (let [resp (client/post (str base-url rsc)
                {:headers {:Authorization (str "WalletPT " k)}
                 :content-type :json
                 :body (json/generate-string params)})]
-            (json/parse-string (resp :body)))
+            resp)
     (catch Object e
-      (let [] e))
+      ;;; TODO something more useful here
+      (println e))
+    ))
+
+(defn- mw-parse-response 
+  [resp]
+  (if (map? resp)
+    (json/parse-string (resp :body))
+    nil
     )
   )
 
-(defn new-checkout 
+(defn start-checkout 
   "create a new checkout and return the checkout id and continuation url"
-  [k params]
-  (let [resp (mw-post k "checkout"  (map-checkout params))]
+  [base-url k params]
+  (let [resp (->> params
+                (map-checkout)
+                (mw-post base-url k "checkout")
+                (mw-parse-response))]
     resp
   )
 )
-(defn with-key [k]
-  (fn [op & body]
-    (apply op k body)))
 
-(defn start-checkout
-  "Create a new checkout and return the checkout id"
-  [k params]
-  (mw-post k "checkout" params)
+
+(defn- callback-valid? [base-url k thebody]
+  (let [resp (mw-post base-url k "callback/verify" thebody)]
+    (if (map? resp)
+      (= (resp :status) 200)
+      nil
+    )
+  ))
+
+(def- bad-req-response
+  {:status 400
+   :header {:content-type "text/plain"}
+   :body "bad request"}
   )
 
-(defn -main
-  "temp test"
-  []
-  (mw-post "f0bd99cab8c6fadf7ae414e37667d7c2973cff65" "checkout" {:amount 10 :cur "EUR"})
-)
+(def- good-req-response
+  {:status 200
+   :header {:content-type "text/plain"}
+   :body "OK"}
+  )
 
-(defn foo
-  "I don't do a whole lot."
-  [x]
-  (println x "Hello, World!"))
+(defn register-callback
+  [base-url k cb]
+  (fn [{:keys [:header :body :request-method]} request]
+       (if-not (and (= request-method :post) (= (header :content-type "application/json")))
+         bad-req-response
+         (if (callback-valid? base-url k body)
+           (if (some? (cb (json/parse-string body)))
+             good-req-response
+             bad-req-response
+           )))))
+
+
