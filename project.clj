@@ -8,5 +8,6 @@
                  [cheshire "5.4.0"]
                  [slingshot "0.12.1"]
                  [ring/ring-core "1.3.2"]]
-  :profiles { :test {:dependencies [[ring/ring-mock "0.2.0"]] }}
+  :profiles { :test {:dependencies [[ring/ring-mock "0.2.0"]] }
+              :repl {:dependencies [[ring/ring-mock "0.2.0"]] }}
   )

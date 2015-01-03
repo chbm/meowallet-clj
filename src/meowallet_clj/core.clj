@@ -19,7 +19,7 @@
         (apply f baseurl key body))
     ))
 
-(defn map-checkout 
+(defn- map-checkout 
   [{:keys [url_confirm url_cancel amount currency client items] :or {currency "EUR"}}]
   {:pre [(some? amount)
          (= currency "EUR")]}
@@ -31,46 +31,64 @@
          (if (some? url_cancel) {:url_confirm url_cancel}) )
   )
 
+(defn- mw-parse-response 
+  [resp]
+  (try+
+    (json/parse-string (resp :body))
+    (catch Object e
+      nil)
+    )
+  )
 
-(defn mw-post 
-  [base-url k rsc params]
-  (try+ 
-    (let [b (if (map? params)
-                  (json/generate-string params)
-                  params
-                 )]
-          (client/post (str base-url rsc)
-               {:headers {"authorization" (str "WalletPT " k)}
-                :content-type :json
-                :body b}))
+(defn- mw-call
+  [method base-url k rsc body query]
+  (try+
+    (let [encodedbody (if (map? body)
+              (json/generate-string body)
+              body
+              )]
+      (client/request {
+                       :method method 
+                       :url (str base-url rsc)
+                       :headers {"authorization" (str "WalletPT " k)}
+                       :content-type :json
+                       :body encodedbody 
+                       :query-params query}))
     (catch Object e
       ;;; TODO something more useful here
       (println (str "mw post exception " e)))
-    )
-)
+    ))
 
-(defn- mw-parse-response 
-  [resp]
-  (if (map? resp)
-    (json/parse-string (resp :body))
-    nil
+(defn- mw-post-
+  [base-url k rsc body]
+  (mw-call :post base-url k rsc body nil))
+
+(defn- mw-post
+  [base-url k rsc body]
+  (let [resp (mw-call :post base-url k rsc body nil)]
+    (mw-parse-response resp)
     )
   )
+
+(defn- mw-get
+  [base-url k rsc params]
+  (let [resp (mw-call :get base-url k rsc nil params)]
+    (mw-parse-response resp)))
+
 
 (defn start-checkout 
   "create a new checkout and return the checkout id and continuation url"
   [base-url k params]
   (let [resp (->> params
                 (map-checkout)
-                (mw-post base-url k "checkout")
-                (mw-parse-response))]
+                (mw-post base-url k "checkout"))]
     resp
   )
 )
 
 
 (defn- callback-valid? [base-url k thebody]
-  (let [resp (mw-post base-url k "callback/verify" thebody)]
+  (let [resp (mw-post- base-url k "callback/verify" thebody)]
     (if (map? resp)
       (= (resp :status) 200)
       nil
@@ -103,4 +121,33 @@
              bad-req-response
            ))))))
 
+(defn get-operation
+  "get operation by id"
+  [base-url k id]
+  {:pre [(string? id)]}
+  (mw-get base-url k (str "operations/" id) nil))
 
+(defn get-operations
+  "get a list of operations for this wallet"
+  [base-url k]
+  (mw-get base-url k "operations" nil))
+
+(defn refund
+  "refund some amount of an operation"
+  [base-url k operation amount extparams]
+  {:pre [(map? operation)
+         (contains? operation "id")
+         (contains? operation "amount")
+         (contains? operation "refundable")]}
+  (if-not (operation "refundable")
+    nil
+    (if (> amount (operation "amount"))
+      nil
+      (mw-post base-url k (str "operations/" (operation "id") "/refund") 
+               (merge (if (= amount (operation "amount"))
+                        {"type" "full"}
+                        {"type" "partial"
+                         "amount" amount}) 
+                      extparams))
+      ))
+  )
