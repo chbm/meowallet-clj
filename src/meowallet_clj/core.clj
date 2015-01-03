@@ -3,7 +3,7 @@
 
 (require '[clj-http.client :as client])
 (require '[cheshire.core :as json])
-(import '(java.io StringReader BufferedReader))
+(require '[ring.util.request :as ring-req])
 
 (defmacro def- 
   [symbol & body] 
@@ -32,17 +32,22 @@
   )
 
 
-(defn mw-post [base-url k rsc params]
-  (try+
-    (let [resp (client/post (str base-url rsc)
-               {:headers {:Authorization (str "WalletPT " k)}
+(defn mw-post 
+  [base-url k rsc params]
+  (try+ 
+    (let [b (if (map? params)
+                  (json/generate-string params)
+                  params
+                 )]
+          (client/post (str base-url rsc)
+               {:headers {"authorization" (str "WalletPT " k)}
                 :content-type :json
-                :body (json/generate-string params)})]
-            resp)
+                :body b}))
     (catch Object e
       ;;; TODO something more useful here
-      (println e))
-    ))
+      (println (str "mw post exception " e)))
+    )
+)
 
 (defn- mw-parse-response 
   [resp]
@@ -86,13 +91,16 @@
 
 (defn register-callback
   [base-url k cb]
-  (fn [{:keys [:header :body :request-method]} request]
-       (if-not (and (= request-method :post) (= (header :content-type "application/json")))
-         bad-req-response
-         (if (callback-valid? base-url k body)
-           (if (some? (cb (json/parse-string body)))
+  (fn [{:keys [headers body request-method] :as request}]
+    (let [bodystr (ring-req/body-string request)]
+       (if-not (and (= request-method :post) (= (headers "content-type") "application/json"))
+   {:status 400
+   :header {:content-type "text/plain"}
+   :body "my bad request"}
+         (if (callback-valid? base-url k bodystr)
+           (if (some? (cb (json/parse-string bodystr)))
              good-req-response
              bad-req-response
-           )))))
+           ))))))
 
 

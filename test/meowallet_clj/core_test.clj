@@ -1,5 +1,6 @@
 (ns meowallet-clj.core-test
   (:require [clojure.test :refer :all]
+            [ring.mock.request :as mock]
             [meowallet-clj.core :refer :all]))
 
 (def test-key "f0bd99cab8c6fadf7ae414e37667d7c2973cff65")
@@ -18,6 +19,20 @@
 
 
 (deftest test-start-checkout
-  (contains? (for-tests start-checkout sample-checkout) :id)
+  (is (contains? (for-tests start-checkout sample-checkout) "id"))
   )
 
+(defn test-callback-handler
+  [operation]
+  true)
+
+(deftest test-callback
+  (let [process-callback (for-tests register-callback test-callback-handler)
+        resp (process-callback (-> (mock/request :post "/")
+                                      (mock/content-type "application/json")
+                                      (mock/body "{\"ext_invoiceid\":null,\"ext_email\":null,\"event\":\"COMPLETED\",\"operation_id\":\"533fde50-c765-44db-b36a-c4ebb8eca591\",\"currency\":\"EUR\",\"ext_customerid\":null,\"amount\":10,\"operation_status\":\"COMPLETED\",\"user\":\"16\",\"method\":\"WALLET\"}"
+                                                 )))]
+    (is (map? resp))
+    (is (= 200 (:status resp)))
+    )
+  )
