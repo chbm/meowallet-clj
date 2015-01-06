@@ -47,7 +47,7 @@
               (json/generate-string body)
               body
               )]
-      (client/request {
+      (client/request { ;;;:debug true
                        :method method 
                        :url (str base-url rsc)
                        :headers {"authorization" (str "WalletPT " k)}
@@ -56,23 +56,25 @@
                        :query-params query}))
     (catch Object e
       ;;; TODO something more useful here
-      (println (str "mw post exception " e)))
-    ))
+      (println (str "mw call exception " e))
+;;;      (throw e)
+      ))
+    )
 
 (defn- mw-post-
   [base-url k rsc body]
-  (mw-call :post base-url k rsc body nil))
+  (mw-call :post base-url k rsc body {}))
 
 (defn- mw-post
   [base-url k rsc body]
-  (let [resp (mw-call :post base-url k rsc body nil)]
+  (let [resp (mw-call :post base-url k rsc body {})]
     (mw-parse-response resp)
     )
   )
 
 (defn- mw-get
   [base-url k rsc params]
-  (let [resp (mw-call :get base-url k rsc nil params)]
+  (let [resp (mw-call :get base-url k rsc "" params)]
     (mw-parse-response resp)))
 
 
@@ -129,8 +131,35 @@
 
 (defn get-operations
   "get a list of operations for this wallet"
-  [base-url k]
-  (mw-get base-url k "operations" nil))
+  ([base-url k] (mw-get base-url k "operations" {}))
+  ([base-url k query] (mw-get base-url k "operations" query))
+  )
+
+(defn get-operations-seq-inner
+  [base-url k page]
+  (let [b (chunk-buffer 10)
+        res (get-operations base-url k {"offset" (* page 10) "limit" 10})]
+    (if-not (and (map? res) (contains? res "elements") (not (empty? (res "elements"))))
+      nil
+      (loop [r (res "elements")]
+        (if (empty? r)
+          (chunk b)
+          (do (chunk-append b (first r))
+              (recur (rest r))))))))
+
+(defn get-operations-seq
+  "returns a sequence of operations for this wallet"
+  ([base-url k] (get-operations-seq base-url k 0))
+  ([base-url k page] 
+   (lazy-seq 
+     (let [c (get-operations-seq-inner base-url k page)]
+      (chunk-cons c (when (some? c) (get-operations-seq base-url k (inc page))))))))
+
+(defn get-operations-invoice
+  "get operations for an invoiceid"
+  [base-url k invoiceid]
+  {:pre [(string? invoiceid)]}
+  (mw-get base-url k (str "operations/byinvoice/" invoiceid)))
 
 (defn refund
   "refund some amount of an operation"
