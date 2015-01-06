@@ -12,6 +12,8 @@
 
 
 (defn with-key-on [env key]
+  "Sets up the environemnt for other functions.
+  env can be :production or :sandbox. key is your MEO Wallet API key"
   (let [baseurl (if (= env :production)
                   "https://services.wallet.pt/api/v2/" 
                   "https://services.sandbox.meowallet.pt/api/v2/")]
@@ -19,16 +21,18 @@
         (apply f baseurl key body))
     ))
 
-(defn- map-checkout 
+(defn map-checkout 
+  "Takes a simple flat map of common checkout atributes and returns a properly formated checkout structure.
+  Caveat: does not know all the checkout attributes"
   [{:keys [url_confirm url_cancel amount currency client items] :or {currency "EUR"}}]
   {:pre [(some? amount)
          (= currency "EUR")]}
-  (merge {:payment (merge {:amount amount :currency currency} 
-                          (if (map? client) {:client client})
-                          (if (vector? items) {:items items})
+  (merge {"payment" (merge {"amount" amount "currency" currency} 
+                          (if (map? client) {"client" client})
+                          (if (vector? items) {"items" items})
                           )}
-         (if (some? url_confirm) {:url_confirm url_confirm})
-         (if (some? url_cancel) {:url_confirm url_cancel}) )
+         (if (some? url_confirm) {"url_confirm" url_confirm})
+         (if (some? url_cancel) {"url_confirm" url_cancel}) )
   )
 
 (defn- mw-parse-response 
@@ -79,11 +83,10 @@
 
 
 (defn start-checkout 
-  "create a new checkout and return the checkout id and continuation url"
+  "Receives a map of checkout attributes and returns a MEO Wallet checkout map.
+  See https://developers.wallet.pt/en/procheckout/structures.html#checkout for information on the attributes, sample-checkout on the tests and map-checkout for utility on checkout creation."
   [base-url k params]
-  (let [resp (->> params
-                (map-checkout)
-                (mw-post base-url k "checkout"))]
+  (let [resp (mw-post base-url k "checkout" params)]
     resp
   )
 )
@@ -110,32 +113,33 @@
   )
 
 (defn register-callback
+  "Takes a payment callback function and returns a POST ring handler you can install on the route you desire.
+  Callback function is called with the callback map (https://developers.wallet.pt/en/procheckout/callbacks.html) and should return a true value to signal the callback was processed
+  NOTE the callback function is called in line so it should be brief in execution to avoid response timeouts."
   [base-url k cb]
   (fn [{:keys [headers body request-method] :as request}]
     (let [bodystr (ring-req/body-string request)]
        (if-not (and (= request-method :post) (= (headers "content-type") "application/json"))
-   {:status 400
-   :header {:content-type "text/plain"}
-   :body "my bad request"}
+         bad-req-response 
          (if (callback-valid? base-url k bodystr)
-           (if (some? (cb (json/parse-string bodystr)))
+           (if (cb (json/parse-string bodystr))
              good-req-response
              bad-req-response
            ))))))
 
 (defn get-operation
-  "get operation by id"
+  "Get an operation by id"
   [base-url k id]
   {:pre [(string? id)]}
   (mw-get base-url k (str "operations/" id) nil))
 
 (defn get-operations
-  "get a list of operations for this wallet"
+  "Gets a list of operations for this wallet. Takes a map of filter parameters as described in https://developers.wallet.pt/en/procheckout/resources.html#api_v2_operations"
   ([base-url k] (mw-get base-url k "operations" {}))
   ([base-url k query] (mw-get base-url k "operations" query))
   )
 
-(defn get-operations-seq-inner
+(defn- get-operations-seq-inner
   [base-url k page]
   (let [b (chunk-buffer 10)
         res (get-operations base-url k {"offset" (* page 10) "limit" 10})]
@@ -148,7 +152,7 @@
               (recur (rest r))))))))
 
 (defn get-operations-seq
-  "returns a sequence of operations for this wallet"
+  "Returns a sequence of operations for this wallet"
   ([base-url k] (get-operations-seq base-url k 0))
   ([base-url k page] 
    (lazy-seq 
@@ -156,13 +160,13 @@
       (chunk-cons c (when (some? c) (get-operations-seq base-url k (inc page))))))))
 
 (defn get-operations-invoice
-  "get operations for an invoiceid"
+  "Takes a ext_invoiceid and returns a vector of operations for an invoiceid"
   [base-url k invoiceid]
   {:pre [(string? invoiceid)]}
-  (mw-get base-url k (str "operations/byinvoice/" invoiceid)))
+  (mw-get base-url k (str "operations/?ext_invoiceid=" invoiceid)))
 
 (defn refund
-  "refund some amount of an operation"
+  "Refund some amount of an operation. Takes an operation map (from get-operation), the amount to refund and a map of ext_* parameters"
   [base-url k operation amount extparams]
   {:pre [(map? operation)
          (contains? operation "id")

@@ -1,4 +1,4 @@
-(defproject meowallet-clj "0.1.0-SNAPSHOT"
+(defproject meowallet-clj "1.0.0-SNAPSHOT"
   :description "MEO Wallet library"
   :url "notyet"
   :license {:name "Eclipse Public License"
