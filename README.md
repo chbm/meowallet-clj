@@ -11,6 +11,20 @@ For more information on the MEO Wallet base concepts visit the https://developer
 
 ## Usage
 
+Add 
+
+```
+  :dependencies [[org.clojure/clojure "1.6.0"]
+	                 [meowallet-clj "1.0.0"]
+```
+to your project.clj
+and 
+
+```
+(:use meowallet-clj.core)
+```
+to your code.
+
 A basic example is
 ```
 (let [{:keys "id" "checkout_url"} (with-key-on :sandbox "aff23rf342rf324f23f4" start-checkout {"amount" 10})
