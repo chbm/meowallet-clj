@@ -1,4 +1,4 @@
-(defproject org.clojars.chbm/meowallet-clj "1.0.0"
+(defproject meowallet/meowallet-clj "1.0.0"
   :description "MEO Wallet library"
   :url "https://github.com/chbm/meowallet-clj"
   :license {:name "Eclipse Public License"
